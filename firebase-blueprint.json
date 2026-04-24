@@ -1,0 +1,101 @@
+{
+  "entities": {
+    "Item": {
+      "title": "Equipment Listing",
+      "description": "An asset listed for rent in the marketplace.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "category": { "type": "string" },
+        "price": { "type": "number" },
+        "location": { "type": "string" },
+        "rating": { "type": "number" },
+        "image": { "type": "string" },
+        "ownerId": { "type": "string" },
+        "ownerName": { "type": "string" },
+        "description": { "type": "string" },
+        "specs": { "type": "array", "items": { "type": "string" } },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "category", "price", "location", "ownerId", "image"]
+    },
+    "Booking": {
+      "title": "Rental Booking",
+      "description": "A transaction recording the rental of an item.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "itemId": { "type": "string" },
+        "renterId": { "type": "string" },
+        "ownerId": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "confirmed", "active", "completed"] },
+        "startDate": { "type": "string", "format": "date" },
+        "endDate": { "type": "string", "format": "date" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["itemId", "renterId", "ownerId", "status", "startDate", "endDate"]
+    },
+    "ChatThread": {
+      "title": "Chat Thread",
+      "description": "A conversation between two or more participants.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "itemId": { "type": "string" },
+        "participantIds": { "type": "array", "items": { "type": "string" } },
+        "lastMessageAt": { "type": "number" }
+      },
+      "required": ["itemId", "participantIds", "lastMessageAt"]
+    },
+    "Message": {
+      "title": "Chat Message",
+      "description": "A single message within a chat thread.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "threadId": { "type": "string" },
+        "senderId": { "type": "string" },
+        "text": { "type": "string" },
+        "timestamp": { "type": "number" }
+      },
+      "required": ["threadId", "senderId", "text", "timestamp"]
+    },
+    "User": {
+      "title": "User Profile",
+      "description": "Public profile information for a user.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "photoURL": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "email"]
+    }
+  },
+  "firestore": {
+    "/items/{itemId}": {
+      "schema": "Item",
+      "description": "Collection of equipment items available for rent."
+    },
+    "/bookings/{bookingId}": {
+      "schema": "Booking",
+      "description": "Collection of rental agreements."
+    },
+    "/threads/{threadId}": {
+      "schema": "ChatThread",
+      "description": "Chat conversations metadata."
+    },
+    "/threads/{threadId}/messages/{messageId}": {
+      "schema": "Message",
+      "description": "Messages within a specific thread."
+    },
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profile data."
+    }
+  }
+}

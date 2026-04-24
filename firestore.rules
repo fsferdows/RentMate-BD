@@ -1,0 +1,126 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // 0. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Helpers ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isEmailVerified() {
+      // For this marketplace, we want verified trusted users
+      return isSignedIn() && (request.auth.token.email_verified == true || request.auth.token.firebase.sign_in_provider == 'google.com');
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // --- Entity Validations ---
+
+    function isValidItem(data) {
+      let requiredFields = ['name', 'category', 'price', 'location', 'ownerId', 'image'];
+      return data.keys().hasAll(requiredFields) &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
+             data.category is string &&
+             data.price is number && data.price >= 0 &&
+             data.location is string && data.location.size() <= 200 &&
+             data.ownerId == request.auth.uid &&
+             data.image is string && data.image.size() <= 2048;
+    }
+
+    function isValidBooking(data) {
+      let requiredFields = ['itemId', 'renterId', 'ownerId', 'status', 'startDate', 'endDate'];
+      return data.keys().hasAll(requiredFields) &&
+             data.itemId is string && isValidId(data.itemId) &&
+             data.renterId == request.auth.uid &&
+             data.ownerId is string && isValidId(data.ownerId) &&
+             data.status in ['pending', 'confirmed', 'active', 'completed'] &&
+             data.startDate is string &&
+             data.endDate is string;
+    }
+
+    function isValidThread(data) {
+      return data.keys().hasAll(['itemId', 'participantIds', 'lastMessageAt']) &&
+             request.auth.uid in data.participantIds &&
+             data.participantIds.size() == 2 &&
+             data.lastMessageAt is number;
+    }
+
+    function isValidMessage(data, threadId) {
+      return data.keys().hasAll(['threadId', 'senderId', 'text', 'timestamp']) &&
+             data.threadId == threadId &&
+             data.senderId == request.auth.uid &&
+             data.text is string && data.text.size() > 0 && data.text.size() <= 5000 &&
+             data.timestamp is number;
+    }
+
+    // --- Routes ---
+
+    // 1. Items
+    match /items/{itemId} {
+      allow read: if true;
+      allow create: if isEmailVerified() && isValidItem(incoming()) && isValidId(itemId) &&
+                    exists(/databases/$(database)/documents/users/$(request.auth.uid));
+      allow update: if isOwner(existing().ownerId) && isValidItem(incoming()) &&
+                    incoming().ownerId == existing().ownerId; // Immutable owner
+      allow delete: if isOwner(existing().ownerId);
+    }
+
+    // 2. Bookings
+    match /bookings/{bookingId} {
+      allow get: if isSignedIn() && (isOwner(existing().renterId) || isOwner(existing().ownerId));
+      allow list: if isSignedIn() && (resource.data.renterId == request.auth.uid || resource.data.ownerId == request.auth.uid);
+      allow create: if isEmailVerified() && isValidBooking(incoming()) && isValidId(bookingId) &&
+                    exists(/databases/$(database)/documents/items/$(incoming().itemId));
+      allow update: if isSignedIn() && (isOwner(existing().renterId) || isOwner(existing().ownerId)) &&
+                    existing().status != 'completed' && // Terminal state locking
+                    incoming().diff(existing()).affectedKeys().hasOnly(['status']) &&
+                    incoming().status in ['confirmed', 'active', 'completed'];
+    }
+
+    // 3. Threads
+    match /threads/{threadId} {
+      allow get: if isSignedIn() && request.auth.uid in existing().participantIds;
+      allow list: if isSignedIn() && request.auth.uid in resource.data.participantIds;
+      allow create: if isEmailVerified() && isValidThread(incoming()) && isValidId(threadId);
+      allow update: if isSignedIn() && request.auth.uid in existing().participantIds &&
+                    incoming().diff(existing()).affectedKeys().hasOnly(['lastMessageAt']);
+
+      // 4. Messages
+      match /messages/{messageId} {
+        // Relational sync: user must be part of the parent thread
+        allow read: if isSignedIn() && request.auth.uid in get(/databases/$(database)/documents/threads/$(threadId)).data.participantIds;
+        allow create: if isEmailVerified() && isValidMessage(incoming(), threadId) && 
+                      request.auth.uid in get(/databases/$(database)/documents/threads/$(threadId)).data.participantIds;
+      }
+    }
+
+    // 5. Users
+    match /users/{userId} {
+      allow read: if true; // Public profiles
+      allow write: if isOwner(userId) && isValidId(userId) &&
+                   incoming().keys().hasAll(['id', 'name', 'email']) &&
+                   incoming().id == userId &&
+                   incoming().email is string &&
+                   (incoming().updatedAt == request.time || !('updatedAt' in incoming()));
+    }
+  }
+}
